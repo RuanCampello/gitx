@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -24,6 +25,8 @@ type repository struct {
 	Fork        bool      `json:"fork"`
 }
 
+var wg sync.WaitGroup
+
 var reposCmd = &cobra.Command{
 	Use:   "repos [username]",
 	Short: "List the (public) repositories of a GitHub user",
@@ -33,11 +36,26 @@ var reposCmd = &cobra.Command{
 		maxResults, _ := cmd.Flags().GetInt("number")
 		language, _ := cmd.Flags().GetString("language")
 
-		repos, err := getRepos(username, language, maxResults)
+		process := make(chan string)
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			for p := range process {
+				fmt.Printf("%s ...\n", p)
+			}
+		}()
+
+		repos, err := getRepos(username, language, maxResults, process)
 		if err != nil {
 			fmt.Println("Error during repository fetch", err)
+			close(process)
 			os.Exit(0)
 		}
+
+		close(process)
+		wg.Wait()
+
 		table, err := renderRepos(repos)
 		if err != nil {
 			fmt.Println("Error rendering repositories table", err)
@@ -51,18 +69,19 @@ var reposCmd = &cobra.Command{
 func init() {
 	gitxCmd.AddCommand(reposCmd)
 	reposCmd.Flags().IntP("number", "n", 5, "Maximum number of repositories to list")
-	reposCmd.Flags().StringP("language", "l", "all", "The languange of the repository")
+	reposCmd.Flags().StringP("language", "l", "all", "The language of the repository")
 }
 
-func getRepos(username, lang string, max int) ([]repository, error) {
+func getRepos(username, lang string, max int, process chan string) ([]repository, error) {
+	process <- "Fetching data from github"
 	url := fmt.Sprintf("https://api.github.com/users/%s/repos?per_page=%d&sort=update", username, max)
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err
 	}
-
 	defer resp.Body.Close()
 
+	process <- "Verifying response"
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to fetch repositories for user %s: %s", username, resp.Status)
 	}
@@ -73,7 +92,7 @@ func getRepos(username, lang string, max int) ([]repository, error) {
 	}
 
 	var filteredRepos []repository
-
+	process <- "Filtering repositories"
 	for _, repo := range repositories {
 		if lang != "all" {
 			if !repo.Fork && strings.ToLower(repo.Language) == lang {
@@ -83,24 +102,11 @@ func getRepos(username, lang string, max int) ([]repository, error) {
 			filteredRepos = append(filteredRepos, repo)
 		}
 	}
-
 	return filteredRepos, nil
 }
 
-// func BubbleSortRepos(repos []repository) {
-// 	n := len(repos)
-// 	for i := 0; i < n-1; i++ {
-// 		for j := 0; j < n-i-1; j++ {
-// 			if repos[j].Updated.Before(repos[j+1].Updated) {
-// 				repos[j], repos[j+1] = repos[j+1], repos[j]
-// 			}
-// 		}
-// 	}
-// }
-
 func renderRepos(repos []repository) (string, error) {
 	headers := []string{"Name", "Description", "Url", "Last update"}
-	// BubbleSortRepos(repos)
 	rows := make([][]string, len(repos))
 	for i, repo := range repos {
 		rows[i] = []string{
