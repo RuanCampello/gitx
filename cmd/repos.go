@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -30,8 +31,9 @@ var reposCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		username := args[0]
 		maxResults, _ := cmd.Flags().GetInt("number")
+		language, _ := cmd.Flags().GetString("language")
 
-		repos, err := getRepos(username, maxResults)
+		repos, err := getRepos(username, language, maxResults)
 		if err != nil {
 			fmt.Println("Error during repository fetch", err)
 			os.Exit(0)
@@ -49,9 +51,10 @@ var reposCmd = &cobra.Command{
 func init() {
 	gitxCmd.AddCommand(reposCmd)
 	reposCmd.Flags().IntP("number", "n", 5, "Maximum number of repositories to list")
+	reposCmd.Flags().StringP("language", "l", "all", "The languange of the repository")
 }
 
-func getRepos(username string, max int) ([]repository, error) {
+func getRepos(username, lang string, max int) ([]repository, error) {
 	url := fmt.Sprintf("https://api.github.com/users/%s/repos?per_page=%d&sort=update", username, max)
 	resp, err := http.Get(url)
 	if err != nil {
@@ -70,8 +73,13 @@ func getRepos(username string, max int) ([]repository, error) {
 	}
 
 	var filteredRepos []repository
+
 	for _, repo := range repositories {
-		if !repo.Fork {
+		if lang != "all" {
+			if !repo.Fork && strings.ToLower(repo.Language) == lang {
+				filteredRepos = append(filteredRepos, repo)
+			}
+		} else if !repo.Fork {
 			filteredRepos = append(filteredRepos, repo)
 		}
 	}
@@ -110,7 +118,7 @@ func renderRepos(repos []repository) (string, error) {
 	re := lipgloss.NewRenderer(os.Stdout)
 
 	t := table.New().Rows(rows...).Headers(headers...).Width(width - (int(math.Pow(float64(width), 0.2)))).
-		BorderStyle(re.NewStyle().Foreground(lipgloss.Color("124")))
+		BorderStyle(re.NewStyle().Foreground(lipgloss.Color("92")))
 
 	return lipgloss.Place(
 		width,
