@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/briandowns/spinner"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
 	"github.com/charmbracelet/x/term"
@@ -36,15 +37,17 @@ var reposCmd = &cobra.Command{
 		maxResults, _ := cmd.Flags().GetInt("number")
 		language, _ := cmd.Flags().GetString("language")
 
+		s := spinner.New(spinner.CharSets[35], 50*time.Millisecond)
 		process := make(chan string)
 		wg.Add(1)
 
 		go func() {
 			defer wg.Done()
 			for p := range process {
-				fmt.Printf("%s ...\n", p)
+				s.Suffix = fmt.Sprintf("%s ...\n", p)
 			}
 		}()
+		s.Start()
 
 		repos, err := getRepos(username, language, maxResults, process)
 		if err != nil {
@@ -55,6 +58,7 @@ var reposCmd = &cobra.Command{
 
 		close(process)
 		wg.Wait()
+		s.Stop()
 
 		table, err := renderRepos(repos)
 		if err != nil {
